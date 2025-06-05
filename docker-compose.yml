@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - CHECK_INTERVAL=${CHECK_INTERVAL:-300}
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///data/amul_bot.db}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sqlite3; sqlite3.connect('/app/data/amul_bot.db')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
