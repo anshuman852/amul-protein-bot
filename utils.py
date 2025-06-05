@@ -12,7 +12,13 @@ def get_ist_time():
 
 def categorize_products(products):
     """Group products by category and variants"""
-    categories = PRODUCT_CATEGORIES.copy()
+    # Create a deep copy to avoid shared references to variant lists
+    categories = {}
+    for category_name, category_data in PRODUCT_CATEGORIES.items():
+        categories[category_name] = {
+            'emoji': category_data['emoji'],
+            'variants': {variant: [] for variant in category_data['variants']}
+        }
     
     for product in products:
         name = product.name.lower()
