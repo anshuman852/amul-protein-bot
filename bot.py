@@ -10,7 +10,7 @@ from config import BOT_TOKEN, DATABASE_URL, CHECK_INTERVAL, COMMANDS
 from models import Base, Product, Subscription
 from api import get_products, init_api_session, cleanup
 from handlers import start, list_products, button_callback, my_subscriptions, stock, send_notification
-from utils import create_product_from_api
+from utils import create_product_from_api, get_current_check_interval, is_downtime, get_schedule_info, get_ist_time
 
 # Configure logging
 logging.basicConfig(
@@ -57,6 +57,11 @@ async def initialize():
 async def check_stock(context: ContextTypes.DEFAULT_TYPE):
     """Periodic job to check stock and notify subscribers"""
     try:
+        # Skip checking during downtime hours
+        if is_downtime():
+            logger.info("Skipping stock check during downtime hours (12am-6am)")
+            return
+            
         api_products = await get_products()
         logger.info(f"Fetched {len(api_products)} products from API")
         
@@ -113,9 +118,47 @@ async def check_stock(context: ContextTypes.DEFAULT_TYPE):
             
             await session.commit()
             logger.info("Stock check completed successfully")
+            
+        # Schedule next check based on current time
+        schedule_next_check(context)
                 
     except Exception as e:
         logger.error(f"Error occurred during stock check: {e}")
+        # Still schedule next check even if there was an error
+        schedule_next_check(context)
+
+def schedule_next_check(context):
+    """Schedule the next stock check based on current time"""
+    try:
+        current_interval = get_current_check_interval()
+        
+        if current_interval is None:
+            # We're in downtime, schedule for when downtime ends
+            from utils import get_next_active_time
+            next_active = get_next_active_time()
+            # Convert IST time to local time for scheduling
+            delay = (next_active.replace(tzinfo=None) - get_ist_time().replace(tzinfo=None)).total_seconds()
+            
+            context.job_queue.run_once(
+                check_stock,
+                when=delay,
+                name="stock_check_resume"
+            )
+            logger.info(f"Scheduled next check after downtime at {next_active.strftime('%H:%M')}")
+        else:
+            # Schedule next check with appropriate interval
+            context.job_queue.run_once(
+                check_stock,
+                when=current_interval,
+                name="stock_check_dynamic"
+            )
+            schedule_info = get_schedule_info()
+            logger.info(f"Scheduled next check: {schedule_info}")
+            
+    except Exception as e:
+        logger.error(f"Error scheduling next check: {e}")
+        # Fallback to default interval
+        context.job_queue.run_once(check_stock, when=300, name="stock_check_fallback")
 
 def command_wrapper(func):
     """Wrapper to provide database session to command handlers"""
@@ -162,13 +205,20 @@ def main():
         asyncio.get_event_loop().run_until_complete(set_commands())
         logger.info("Bot commands registered")
 
-        # Add periodic stock checker
-        application.job_queue.run_repeating(
-            check_stock,
-            interval=CHECK_INTERVAL,
-            first=10  # First run after 10 seconds
-        )
-        logger.info("Stock checker scheduled")
+        # Start dynamic stock checker
+        current_interval = get_current_check_interval()
+        if current_interval is None:
+            # We're in downtime, schedule for when it ends
+            from utils import get_next_active_time
+            next_active = get_next_active_time()
+            delay = (next_active.replace(tzinfo=None) - get_ist_time().replace(tzinfo=None)).total_seconds()
+            application.job_queue.run_once(check_stock, when=max(10, delay), name="stock_check_initial")
+            logger.info(f"Bot starting during downtime - first check scheduled for {next_active.strftime('%H:%M')}")
+        else:
+            # Start checking immediately with current interval
+            application.job_queue.run_once(check_stock, when=10, name="stock_check_initial")
+            schedule_info = get_schedule_info()
+            logger.info(f"Dynamic stock checker started: {schedule_info}")
         logger.info("Bot starting...")
 
         # Start the bot

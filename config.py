@@ -5,7 +5,16 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN environment variable is required")
 
-CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "300"))  # Default 5 minutes
+# Smart scheduling configuration
+CHECK_INTERVAL_PEAK = int(os.getenv("CHECK_INTERVAL_PEAK", "120"))      # 2 minutes during peak hours (6am-4pm)
+CHECK_INTERVAL_NORMAL = int(os.getenv("CHECK_INTERVAL_NORMAL", "600"))   # 10 minutes during normal hours (4pm-12am)
+DOWNTIME_START_HOUR = int(os.getenv("DOWNTIME_START_HOUR", "0"))         # 12am (midnight)
+DOWNTIME_END_HOUR = int(os.getenv("DOWNTIME_END_HOUR", "6"))             # 6am
+PEAK_START_HOUR = int(os.getenv("PEAK_START_HOUR", "6"))                 # 6am
+PEAK_END_HOUR = int(os.getenv("PEAK_END_HOUR", "16"))                    # 4pm
+
+# Legacy config for backward compatibility
+CHECK_INTERVAL = CHECK_INTERVAL_PEAK  # Default to peak interval
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///data/amul_bot.db")
 
 # API Endpoints
