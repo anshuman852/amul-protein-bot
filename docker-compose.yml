@@ -2,13 +2,14 @@ version: '3.8'
 
 services:
   bot:
-    build: .
+    image: amul-bot:latest
     restart: unless-stopped
+    env_file:
+      - .env
     volumes:
       - ./data:/app/data
     environment:
-      - BOT_TOKEN=${BOT_TOKEN}
-      - CHECK_INTERVAL=${CHECK_INTERVAL:-300}
+      # Override specific environment variables if needed
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///data/amul_bot.db}
     healthcheck:
       test: ["CMD", "python", "-c", "import sqlite3; sqlite3.connect('/app/data/amul_bot.db')"]
