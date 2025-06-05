@@ -11,21 +11,6 @@ metadata = MetaData(naming_convention=convention)
 
 Base = declarative_base(metadata=metadata)
 
-# Schema version tracking
-SCHEMA_VERSION = 2  # Increment when changing schema
-
-class SchemaVersion(Base):
-    """Track database schema version"""
-    __tablename__ = 'schema_version'
-    
-    id = Column(Integer, primary_key=True)
-    version = Column(Integer, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow)
-
-    @property
-    def current_version(self):
-        return self.version
-
 class Product(Base):
     """Product information"""
     __tablename__ = 'products'

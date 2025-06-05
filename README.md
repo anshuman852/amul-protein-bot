@@ -65,6 +65,34 @@ python bot.py
 
 ## Docker Deployment
 
+### Using Pre-built Images (Recommended)
+
+Multi-architecture Docker images are automatically built and published to GitHub Container Registry (GHCR) for both `amd64` and `arm64` platforms.
+
+1. Pull and run the latest image:
+```bash
+docker run -d \
+  --name amul-bot \
+  -e BOT_TOKEN=your_bot_token_here \
+  -v $(pwd)/data:/app/data \
+  ghcr.io/your-username/amul-bot:latest
+```
+
+2. Or use docker-compose with the pre-built image:
+```yaml
+version: '3.8'
+services:
+  amul-bot:
+    image: ghcr.io/your-username/amul-bot:latest
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+```
+
+### Building Locally
+
 1. Build and start:
 ```bash
 docker-compose up -d
@@ -80,12 +108,16 @@ docker-compose logs -f
 docker-compose down
 ```
 
-## Database Updates
+## Available Docker Tags
 
-The bot automatically handles database schema updates. If there are any schema changes, the bot will:
-1. Detect the schema version mismatch
-2. Drop and recreate tables with the new schema
-3. Log the upgrade process
+- `latest` - Latest stable release from main branch
+- `develop` - Latest development build
+- `v1.0.0` - Specific version tags
+- All tags support both `linux/amd64` and `linux/arm64` architectures
+
+## Database
+
+The bot uses SQLite database stored in the `data/` directory. The database is automatically created on first run with all necessary tables.
 
 ## Product Categories
 

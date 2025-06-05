@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constants
 from telegram.ext import ContextTypes
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -80,9 +80,12 @@ async def list_products(update: Update, context: ContextTypes.DEFAULT_TYPE, sess
         if keyboard:
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
-                "Select products to get notified when they're back in stock:\n"
-                "Click on a product to subscribe/unsubscribe.",
-                reply_markup=reply_markup
+                "🛒 <b>Product Catalog</b>\n\n"
+                "📱 Select products to get notified when they're back in stock\n"
+                "👆 Click on a product to subscribe/unsubscribe\n\n"
+                "🟢 = In Stock | 🔴 = Out of Stock | ✅ = Subscribed",
+                reply_markup=reply_markup,
+                parse_mode=constants.ParseMode.HTML
             )
         else:
             await update.message.reply_text(
@@ -121,7 +124,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, se
     if subscription:
         # Unsubscribe
         await session.delete(subscription)
-        message = f"❌ Unsubscribed from: {product.name}\n\nYou won't receive notifications for this product anymore."
+        message = f"❌ <b>Unsubscribed from:</b>\n{product.name}\n\n📵 You won't receive notifications for this product anymore."
         logger.info(f"User {user_id} unsubscribed from product {product_id}")
     else:
         # Subscribe with current stock status
@@ -134,20 +137,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, se
         session.add(subscription)
         
         status = "🟢 in stock" if product.available else "🔴 out of stock"
-        message = f"""
-✅ Subscribed to: {product.name}
+        message = f"""✅ <b>Subscribed to:</b>
+{product.name}
 
-Current Status: {status}
-Price: ₹{product.price}
+📊 <b>Current Status:</b> {status}
+💰 <b>Price:</b> ₹{product.price}
 
-You will be notified when:
-- Product comes back in stock (if currently unavailable)
-- Product becomes unavailable (if currently in stock)
-        """
+🔔 <b>You will be notified when:</b>
+• Product comes back in stock (if currently unavailable)
+• Product becomes unavailable (if currently in stock)"""
         logger.info(f"User {user_id} subscribed to product {product_id}")
     
     await session.commit()
-    await query.edit_message_text(text=message)
+    await query.edit_message_text(text=message, parse_mode=constants.ParseMode.HTML)
 
 async def my_subscriptions(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     """Show user's subscribed products with detailed status"""
@@ -190,20 +192,22 @@ async def my_subscriptions(update: Update, context: ContextTypes.DEFAULT_TYPE, s
         else:
             waiting_for_stock.append(subscription_info)  # Never been in stock
     
-    message = "📬 Your Subscriptions\n\n"
+    message = "📬 <b>Your Subscriptions</b>\n\n"
     
     if waiting_for_stock:
-        message += "🔄 Waiting for Stock:\n" + "\n\n".join(waiting_for_stock) + "\n\n"
+        message += "<b>🔄 Waiting for Stock:</b>\n" + "\n\n".join(waiting_for_stock) + "\n\n"
     
     if waiting_for_restock:
-        message += "⏳ Waiting for Restock:\n" + "\n\n".join(waiting_for_restock) + "\n\n"
+        message += "<b>⏳ Waiting for Restock:</b>\n" + "\n\n".join(waiting_for_restock) + "\n\n"
         
     if currently_in_stock:
-        message += "✅ Currently Available:\n" + "\n\n".join(currently_in_stock) + "\n\n"
-        
-    message += "\nℹ️ You will be notified when products come back in stock.\nUse /products to manage your subscriptions."
+        message += "<b>✅ Currently Available:</b>\n" + "\n\n".join(currently_in_stock) + "\n\n"
     
-    await update.message.reply_text(message)
+    message += "─" * 30 + "\n"
+    message += "ℹ️ You will be notified when products come back in stock.\n"
+    message += "📱 Use /products to manage your subscriptions."
+    
+    await update.message.reply_text(message, parse_mode=constants.ParseMode.HTML)
 
 async def stock(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     """Show current stock status of all products"""
@@ -226,7 +230,7 @@ async def stock(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
         categories = categorize_products(products)
         message = format_stock_message(categories, last_check_time, CHECK_INTERVAL)
         
-        await update.message.reply_text(message)
+        await update.message.reply_text(message, parse_mode=constants.ParseMode.HTML)
         
     except Exception as e:
         logger.error(f"Error in stock command: {e}")
@@ -238,7 +242,7 @@ async def send_notification(context: ContextTypes.DEFAULT_TYPE, product: Product
     """Send Telegram notification to a subscribed user"""
     try:
         message = format_notification_message(product)
-        await context.bot.send_message(chat_id=user_id, text=message)
+        await context.bot.send_message(chat_id=user_id, text=message, parse_mode=constants.ParseMode.HTML)
         logger.info(f"Notification sent to user {user_id} for product {product.name}")
     except Exception as e:
         logger.error(f"Failed to send notification to {user_id}: {e}")

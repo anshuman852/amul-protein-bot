@@ -25,7 +25,7 @@ def categorize_products(products):
         if "whey protein" in name:
             category = 'Whey Protein'
             variant = 'Chocolate' if 'chocolate' in name else 'Unflavoured'
-        elif "milkshake" in name:
+        elif "milkshake" in name or "shake" in name:
             category = 'Protein Shakes'
             if 'chocolate' in name:
                 variant = 'Chocolate'
@@ -55,48 +55,48 @@ def categorize_products(products):
 
 def format_notification_message(product):
     """Format notification message for product availability"""
-    return f"""
-🎉 Stock Update!
+    return f"""🎉 <b>Stock Update!</b>
 
-{product.name}
-Status: Now Available
-Price: ₹{product.price}
-SKU: {product.sku}
+<b>{product.name}</b>
+📊 Status: <b>Now Available</b>
+💰 Price: <b>₹{product.price}</b>
+🏷️ SKU: <code>{product.sku}</code>
 
 📍 You are receiving this notification because you subscribed to stock updates for this product.
 
-🔗 Shop now at: https://shop.amul.com/product/{product.alias}
+🛒 <a href="https://shop.amul.com/product/{product.alias}">Shop now</a>
 
-Note: You will be notified again if this product goes out of stock and becomes available again.
-    """
+ℹ️ You will be notified again if this product goes out of stock and becomes available again."""
 
 def format_stock_message(categories, last_check_time=None, check_interval=300):
     """Format stock status message with categories"""
-    message = "📊 Product Categories\n\n"
+    message = "📊 <b>Product Categories</b>\n\n"
     
     for category_name, category_data in categories.items():
         has_products = False
         category_text = []
         
-        # Add category header
-        category_text.append(f"{category_data['emoji']} {category_name}")
+        # Add category header with bold formatting
+        category_text.append(f"<b>{category_data['emoji']} {category_name}</b>\n")
         
         # Add variants with products
         for variant, products in category_data['variants'].items():
             if products:
                 has_products = True
-                category_text.append(f"\n{variant}:")
+                category_text.append(f"<b>{variant}:</b>")
                 category_text.extend(f"• {p}" for p in sorted(products))
+                category_text.append("")  # Add empty line after each variant
         
         if has_products:
-            message += "\n".join(category_text) + "\n\n"
+            message += "\n".join(category_text) + "\n"
     
-    # Add timing information
+    # Add timing information with better formatting
+    message += "─" * 30 + "\n"
     if last_check_time:
-        message += f"\nLast updated: {last_check_time.strftime('%Y-%m-%d %H:%M')}"
+        message += f"🕐 <b>Last updated:</b> {last_check_time.strftime('%Y-%m-%d %H:%M')}\n"
     
     next_check = datetime.now() + timedelta(seconds=check_interval)
-    message += f"\nNext check in: {check_interval//60} minutes (around {next_check.strftime('%H:%M')})"
+    message += f"⏰ <b>Next check in:</b> {check_interval//60} minutes (around {next_check.strftime('%H:%M')})"
     
     return message
 

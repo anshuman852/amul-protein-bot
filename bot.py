@@ -7,7 +7,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQuer
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 from config import BOT_TOKEN, DATABASE_URL, CHECK_INTERVAL, COMMANDS
-from models import Base, SchemaVersion, Product, Subscription, SCHEMA_VERSION
+from models import Base, Product, Subscription
 from api import get_products, init_api_session, cleanup
 from handlers import start, list_products, button_callback, my_subscriptions, stock, send_notification
 from utils import create_product_from_api
@@ -38,40 +38,9 @@ async def initialize():
     # Initialize database
     try:
         async with engine.begin() as conn:
-            # Create all tables
+            # Create all tables if they don't exist
             await conn.run_sync(Base.metadata.create_all)
-            
-            # Check schema version
-            from sqlalchemy import select, delete, insert
-            version_result = await conn.execute(
-                select(SchemaVersion).order_by(SchemaVersion.id.desc()).limit(1)
-            )
-            current_version = version_result.scalar_one_or_none()
-            current_version_num = getattr(current_version, 'version', 0)
-            
-            if current_version_num < SCHEMA_VERSION:
-                # Database needs upgrade
-                logger.info("Database schema upgrade needed")
-                await conn.run_sync(Base.metadata.drop_all)
-                await conn.run_sync(Base.metadata.create_all)
-                
-                # Record new version
-                # Delete any existing version records
-                await conn.execute(delete(SchemaVersion))
-                await conn.commit()
-                
-                # Create new schema version record
-                new_version = SchemaVersion(
-                    version=SCHEMA_VERSION,
-                    updated_at=datetime.utcnow()
-                )
-                await conn.execute(insert(SchemaVersion).values(
-                    version=new_version.version,
-                    updated_at=new_version.updated_at
-                ))
-                logger.info(f"Database upgraded to schema version {SCHEMA_VERSION}")
-            else:
-                logger.info(f"Database schema is current (version {SCHEMA_VERSION})")
+            logger.info("Database tables created/verified")
                 
         logger.info("Database initialized successfully")
     except Exception as e:
@@ -148,7 +117,7 @@ async def check_stock(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error occurred during stock check: {e}")
 
-async def command_wrapper(func):
+def command_wrapper(func):
     """Wrapper to provide database session to command handlers"""
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with async_session() as session:
@@ -209,8 +178,17 @@ def main():
         logger.error(f"Bot crashed: {e}")
         raise
     finally:
-        # Cleanup
-        asyncio.get_event_loop().run_until_complete(cleanup())
+        # Cleanup API session
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If loop is still running, schedule cleanup
+                loop.create_task(cleanup())
+            else:
+                # If loop is closed, create new one for cleanup
+                asyncio.run(cleanup())
+        except Exception as cleanup_error:
+            logger.error(f"Error during cleanup: {cleanup_error}")
 
 if __name__ == '__main__':
     try:
