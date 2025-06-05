@@ -30,10 +30,27 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 
 async def initialize():
     """Initialize database and API session"""
-    # Create data directory if it doesn't exist
-    if not os.path.exists('data'):
-        os.makedirs('data')
-        logger.info("Created data directory")
+    # Check and create data directory with proper error handling
+    data_dir = '/app/data'
+    try:
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir, mode=0o755)
+            logger.info(f"Created data directory: {data_dir}")
+        
+        # Check if directory is writable
+        test_file = os.path.join(data_dir, 'test_write.tmp')
+        try:
+            with open(test_file, 'w') as f:
+                f.write('test')
+            os.remove(test_file)
+            logger.info(f"Data directory is writable: {data_dir}")
+        except Exception as write_error:
+            logger.error(f"Data directory is not writable: {data_dir} - {write_error}")
+            raise
+            
+    except Exception as dir_error:
+        logger.error(f"Failed to create/access data directory: {dir_error}")
+        raise
 
     # Initialize database
     try:
@@ -45,6 +62,7 @@ async def initialize():
         logger.info("Database initialized successfully")
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
+        logger.error(f"Database URL: {DATABASE_URL}")
         raise
 
     # Initialize API session

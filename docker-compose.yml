@@ -9,7 +9,8 @@ services:
       - ./data:/app/data
     environment:
       # Override specific environment variables if needed
-      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///data/amul_bot.db}
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///app/data/amul_bot.db}
+    user: "1000:1000"
     healthcheck:
       test: ["CMD", "python", "-c", "import sqlite3; sqlite3.connect('/app/data/amul_bot.db')"]
       interval: 30s

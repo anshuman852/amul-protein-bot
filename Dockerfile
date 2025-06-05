@@ -17,12 +17,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application
 COPY . .
 
-# Create data directory
-RUN mkdir -p data
-
 # Run as non-root user
 RUN useradd -m botuser
-RUN chown -R botuser:botuser /app
+
+# Create data directory and set permissions
+RUN mkdir -p data && chown -R botuser:botuser /app
+
 USER botuser
 
 # Command to run the bot
