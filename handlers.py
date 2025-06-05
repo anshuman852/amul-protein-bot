@@ -222,7 +222,7 @@ async def show_category_products(query, context: ContextTypes.DEFAULT_TYPE, sess
                     
                     if matching_product:
                         # Check if user is subscribed
-                        is_subscribed = any(sub.user_id == user_id and not sub.notified 
+                        is_subscribed = any(sub.user_id == user_id 
                                           for sub in matching_product.subscriptions)
                         sub_icon = " ✅" if is_subscribed else ""
                         
@@ -258,7 +258,7 @@ async def show_category_products(query, context: ContextTypes.DEFAULT_TYPE, sess
             for j in range(2):
                 if i + j < len(category_products):
                     product = category_products[i + j]
-                    is_subscribed = any(sub.user_id == user_id and not sub.notified 
+                    is_subscribed = any(sub.user_id == user_id 
                                       for sub in product.subscriptions)
                     button_text = f"{'✅' if is_subscribed else '📝'} {i+j+1}"
                     row.append(InlineKeyboardButton(button_text, callback_data=f"toggle_{product.id}"))
