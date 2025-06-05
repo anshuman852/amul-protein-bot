@@ -188,7 +188,7 @@ async def my_subscriptions(update: Update, context: ContextTypes.DEFAULT_TYPE, s
         
         # Add shop link for in-stock products
         if product.available:
-            product_link = f"https://shop.amul.com/product/{product.alias}"
+            product_link = f"https://shop.amul.com/en/product/{product.alias}"
             subscription_info += f"\n  🛒 <a href=\"{product_link}\">Shop now</a>"
         
         if sub.last_notified_at:

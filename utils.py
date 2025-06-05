@@ -35,7 +35,7 @@ def categorize_products(products):
         
         # Add product link for in-stock items
         if product.available:
-            product_link = f"https://shop.amul.com/product/{product.alias}"
+            product_link = f"https://shop.amul.com/en/product/{product.alias}"
             product_info = f"{status} - {pack_info} - {price} - <a href=\"{product_link}\">🛒 Shop</a>"
         else:
             product_info = f"{status} - {pack_info} - {price}"
@@ -83,7 +83,7 @@ def format_notification_message(product):
 
 📍 You are receiving this notification because you subscribed to stock updates for this product.
 
-🛒 <a href="https://shop.amul.com/product/{product.alias}">Shop now</a>
+🛒 <a href="https://shop.amul.com/en/product/{product.alias}">Shop now</a>
 
 ℹ️ You will be notified again if this product goes out of stock and becomes available again."""
 
