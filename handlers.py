@@ -25,7 +25,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
         await session.commit()
         logger.info(f"New user registered: {user_id}")
     
-    welcome_msg = "Welcome! I'll help you track Amul protein products.\n\nUse /products to see available products and subscribe to stock notifications."
+    welcome_msg = """Welcome! I'll help you track Amul protein products.
+
+Use /products to see available products and subscribe to stock notifications.
+
+📝 For any suggestions or feedback, please contact @anshuman852"""
     await update.message.reply_text(welcome_msg)
 
 async def list_products(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
