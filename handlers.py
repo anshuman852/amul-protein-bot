@@ -33,10 +33,8 @@ Use /products to see available products and subscribe to stock notifications.
     await update.message.reply_text(welcome_msg)
 
 async def list_products(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
-    """List all products with subscription buttons"""
+    """Show product categories"""
     try:
-        user_id = str(update.effective_user.id)
-        
         # First try to get products from database
         products_query = select(Product).options(
             selectinload(Product.subscriptions)
@@ -64,30 +62,35 @@ async def list_products(update: Update, context: ContextTypes.DEFAULT_TYPE, sess
             await session.commit()
             logger.info(f"Added {len(products)} products to database")
         
-        # Create keyboard with product buttons
+        # Categorize products to get counts
+        categories = categorize_products(products)
+        
+        # Create keyboard with category buttons
         keyboard = []
-        for product in products:
-            # Check if user is subscribed
-            is_subscribed = any(sub.user_id == user_id and not sub.notified for sub in product.subscriptions)
-            status = "🔴 Out of Stock" if not product.available else "🟢 In Stock"
-            sub_status = "✅ Subscribed" if is_subscribed else ""
+        for category_name, category_data in categories.items():
+            # Count available and total products in category
+            total_products = sum(len(variants) for variants in category_data['variants'].values())
+            available_count = 0
+            for variants in category_data['variants'].values():
+                for product_info in variants:
+                    if "🟢 In Stock" in product_info:
+                        available_count += 1
             
-            # Format price in rupees
-            price = f"₹{product.price}"
-            
-            button = InlineKeyboardButton(
-                f"{product.name} - {price} ({status}) {sub_status}",
-                callback_data=f"toggle_{product.id}"
-            )
-            keyboard.append([button])
+            if total_products > 0:  # Only show categories that have products
+                status_icon = "🟢" if available_count > 0 else "🔴"
+                button = InlineKeyboardButton(
+                    f"{category_data['emoji']} {category_name} {status_icon} ({available_count}/{total_products})",
+                    callback_data=f"category_{category_name.replace(' ', '_')}"
+                )
+                keyboard.append([button])
         
         if keyboard:
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
-                "🛒 <b>Product Catalog</b>\n\n"
-                "📱 Select products to get notified when they're back in stock\n"
-                "👆 Click on a product to subscribe/unsubscribe\n\n"
-                "🟢 = In Stock | 🔴 = Out of Stock | ✅ = Subscribed",
+                "🛒 <b>Product Categories</b>\n\n"
+                "📱 Select a category to view products and subscribe\n"
+                "🟢 = Has available items | 🔴 = All out of stock\n"
+                "Numbers show (available/total) products",
                 reply_markup=reply_markup,
                 parse_mode=constants.ParseMode.HTML
             )
@@ -103,45 +106,59 @@ async def list_products(update: Update, context: ContextTypes.DEFAULT_TYPE, sess
         )
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
-    """Handle button presses for product subscriptions"""
+    """Handle button presses for categories and product subscriptions"""
     query = update.callback_query
     await query.answer()
     
-    product_id = query.data.replace("toggle_", "")
     user_id = str(query.from_user.id)
     
-    # Get current product status
-    product_query = select(Product).where(Product.id == product_id)
-    product = await session.scalar(product_query)
-    
-    if not product:
-        await query.edit_message_text("Error: Product not found.")
+    # Handle category selection
+    if query.data.startswith("category_"):
+        category_name = query.data.replace("category_", "").replace("_", " ")
+        await show_category_products(query, context, session, category_name)
         return
     
-    # Check existing subscription
-    sub_query = select(Subscription).where(
-        Subscription.user_id == user_id,
-        Subscription.product_id == product_id
-    )
-    subscription = await session.scalar(sub_query)
+    # Handle back to categories
+    if query.data == "back_to_categories":
+        await show_categories_again(query, context, session)
+        return
     
-    if subscription:
-        # Unsubscribe
-        await session.delete(subscription)
-        message = f"❌ <b>Unsubscribed from:</b>\n{product.name}\n\n📵 You won't receive notifications for this product anymore."
-        logger.info(f"User {user_id} unsubscribed from product {product_id}")
-    else:
-        # Subscribe with current stock status
-        subscription = Subscription(
-            user_id=user_id,
-            product_id=product_id,
-            last_stock_status=product.available,
-            notified=product.available  # If product is available, mark as notified
-        )
-        session.add(subscription)
+    # Handle product subscription toggle
+    if query.data.startswith("toggle_"):
+        product_id = query.data.replace("toggle_", "")
         
-        status = "🟢 in stock" if product.available else "🔴 out of stock"
-        message = f"""✅ <b>Subscribed to:</b>
+        # Get current product status
+        product_query = select(Product).where(Product.id == product_id)
+        product = await session.scalar(product_query)
+        
+        if not product:
+            await query.edit_message_text("Error: Product not found.")
+            return
+        
+        # Check existing subscription
+        sub_query = select(Subscription).where(
+            Subscription.user_id == user_id,
+            Subscription.product_id == product_id
+        )
+        subscription = await session.scalar(sub_query)
+        
+        if subscription:
+            # Unsubscribe
+            await session.delete(subscription)
+            message = f"❌ <b>Unsubscribed from:</b>\n{product.name}\n\n📵 You won't receive notifications for this product anymore."
+            logger.info(f"User {user_id} unsubscribed from product {product_id}")
+        else:
+            # Subscribe with current stock status
+            subscription = Subscription(
+                user_id=user_id,
+                product_id=product_id,
+                last_stock_status=product.available,
+                notified=product.available  # If product is available, mark as notified
+            )
+            session.add(subscription)
+            
+            status = "🟢 in stock" if product.available else "🔴 out of stock"
+            message = f"""✅ <b>Subscribed to:</b>
 {product.name}
 
 📊 <b>Current Status:</b> {status}
@@ -150,10 +167,111 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, se
 🔔 <b>You will be notified when:</b>
 • Product comes back in stock (if currently unavailable)
 • Product becomes unavailable (if currently in stock)"""
-        logger.info(f"User {user_id} subscribed to product {product_id}")
-    
-    await session.commit()
-    await query.edit_message_text(text=message, parse_mode=constants.ParseMode.HTML)
+            logger.info(f"User {user_id} subscribed to product {product_id}")
+        
+        await session.commit()
+        await query.edit_message_text(text=message, parse_mode=constants.ParseMode.HTML)
+
+async def show_category_products(query, context: ContextTypes.DEFAULT_TYPE, session, category_name: str):
+    """Show products in a specific category"""
+    try:
+        user_id = str(query.from_user.id)
+        
+        # Get all products
+        products_query = select(Product).options(
+            selectinload(Product.subscriptions)
+        )
+        result = await session.execute(products_query)
+        products = result.scalars().all()
+        
+        # Categorize products
+        categories = categorize_products(products)
+        
+        if category_name not in categories:
+            await query.edit_message_text("Category not found.")
+            return
+        
+        category_data = categories[category_name]
+        
+        # Build product list with numbers
+        message = f"{category_data['emoji']} <b>{category_name}</b>\n\n"
+        
+        # Store products for number selection
+        category_products = []
+        product_number = 1
+        
+        for variant_name, variant_products in category_data['variants'].items():
+            if variant_products:
+                message += f"<b>{variant_name}:</b>\n"
+                
+                for product_info in sorted(variant_products):
+                    # Extract product details from the formatted string
+                    # Format: "🟢 In Stock - pack of X - ₹YYYY - 🛒 Shop"
+                    parts = product_info.split(" - ")
+                    status_icon = "🟢" if "🟢 In Stock" in product_info else "🔴"
+                    
+                    # Find the actual product object
+                    matching_product = None
+                    for product in products:
+                        if f"₹{product.price}" in product_info:
+                            # Additional matching logic based on pack info
+                            name_lower = product.name.lower()
+                            if variant_name.lower() in name_lower or category_name.lower() in name_lower:
+                                matching_product = product
+                                break
+                    
+                    if matching_product:
+                        # Check if user is subscribed
+                        is_subscribed = any(sub.user_id == user_id and not sub.notified 
+                                          for sub in matching_product.subscriptions)
+                        sub_icon = " ✅" if is_subscribed else ""
+                        
+                        # Add product link for in-stock items
+                        shop_link = ""
+                        if matching_product.available:
+                            shop_link = f" - <a href=\"https://shop.amul.com/product/{matching_product.alias}\">🛒 Shop</a>"
+                        
+                        message += f"{product_number}. {status_icon} {parts[1]} - ₹{matching_product.price}{sub_icon}{shop_link}\n"
+                        category_products.append(matching_product)
+                        product_number += 1
+                
+                message += "\n"
+        
+        # Store category products in context for number commands
+        context.user_data['category_products'] = category_products
+        context.user_data['category_name'] = category_name
+        
+        message += "─" * 30 + "\n"
+        message += "📱 <b>How to subscribe:</b>\n"
+        message += "• Use buttons below for quick actions\n"
+        message += "• Or send /&lt;number&gt; (e.g., /1, /2) to subscribe\n"
+        message += "• Send /&lt;number&gt; again to unsubscribe\n\n"
+        message += f"🟢 = In Stock | 🔴 = Out of Stock | ✅ = Subscribed"
+        
+        # Create keyboard with quick action buttons
+        keyboard = []
+        
+        # Add "Back to Categories" button
+        keyboard.append([InlineKeyboardButton("⬅️ Back to Categories", callback_data="back_to_categories")])
+        
+        # Add individual product buttons for all products (2 per row)
+        for i in range(0, len(category_products), 2):
+            row = []
+            for j in range(2):
+                if i + j < len(category_products):
+                    product = category_products[i + j]
+                    is_subscribed = any(sub.user_id == user_id and not sub.notified 
+                                      for sub in product.subscriptions)
+                    button_text = f"{'✅' if is_subscribed else '📝'} {i+j+1}"
+                    row.append(InlineKeyboardButton(button_text, callback_data=f"toggle_{product.id}"))
+            keyboard.append(row)
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(message, reply_markup=reply_markup, parse_mode=constants.ParseMode.HTML)
+        
+    except Exception as e:
+        logger.error(f"Error showing category products: {e}")
+        await query.edit_message_text("An error occurred. Please try again.")
 
 async def my_subscriptions(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
     """Show user's subscribed products with detailed status"""
@@ -188,7 +306,7 @@ async def my_subscriptions(update: Update, context: ContextTypes.DEFAULT_TYPE, s
         
         # Add shop link for in-stock products
         if product.available:
-            product_link = f"https://shop.amul.com/en/product/{product.alias}"
+            product_link = f"https://shop.amul.com/product/{product.alias}"
             subscription_info += f"\n  🛒 <a href=\"{product_link}\">Shop now</a>"
         
         if sub.last_notified_at:
@@ -246,6 +364,135 @@ async def stock(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
         await update.message.reply_text(
             "An error occurred while fetching stock status. Please try again later."
         )
+
+async def show_categories_again(query, context: ContextTypes.DEFAULT_TYPE, session):
+    """Show product categories again"""
+    try:
+        # Get all products
+        products_query = select(Product).options(
+            selectinload(Product.subscriptions)
+        )
+        result = await session.execute(products_query)
+        products = result.scalars().all()
+        
+        # Categorize products to get counts
+        categories = categorize_products(products)
+        
+        # Create keyboard with category buttons
+        keyboard = []
+        for category_name, category_data in categories.items():
+            # Count available and total products in category
+            total_products = sum(len(variants) for variants in category_data['variants'].values())
+            available_count = 0
+            for variants in category_data['variants'].values():
+                for product_info in variants:
+                    if "🟢 In Stock" in product_info:
+                        available_count += 1
+            
+            if total_products > 0:  # Only show categories that have products
+                status_icon = "🟢" if available_count > 0 else "🔴"
+                button = InlineKeyboardButton(
+                    f"{category_data['emoji']} {category_name} {status_icon} ({available_count}/{total_products})",
+                    callback_data=f"category_{category_name.replace(' ', '_')}"
+                )
+                keyboard.append([button])
+        
+        if keyboard:
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "🛒 <b>Product Categories</b>\n\n"
+                "📱 Select a category to view products and subscribe\n"
+                "🟢 = Has available items | 🔴 = All out of stock\n"
+                "Numbers show (available/total) products",
+                reply_markup=reply_markup,
+                parse_mode=constants.ParseMode.HTML
+            )
+        else:
+            await query.edit_message_text("No products available at the moment. Please try again later.")
+            
+    except Exception as e:
+        logger.error(f"Error showing categories: {e}")
+        await query.edit_message_text("An error occurred. Please try again.")
+
+async def handle_number_command(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
+    """Handle /1, /2, etc. commands for product subscription"""
+    try:
+        # Extract number from command
+        command_text = update.message.text.strip()
+        if not command_text.startswith('/') or len(command_text) < 2:
+            return
+        
+        try:
+            number = int(command_text[1:])  # Remove the '/' and convert to int
+        except ValueError:
+            return  # Not a valid number command
+        
+        user_id = str(update.effective_user.id)
+        
+        # Check if user has category products stored
+        if not context.user_data or 'category_products' not in context.user_data:
+            await update.message.reply_text(
+                "Please first select a category using /products command."
+            )
+            return
+        
+        category_products = context.user_data.get('category_products', [])
+        category_name = context.user_data.get('category_name', 'Unknown')
+        
+        # Check if number is valid
+        if number < 1 or number > len(category_products):
+            await update.message.reply_text(
+                f"Invalid number. Please choose between 1 and {len(category_products)}."
+            )
+            return
+        
+        # Get the product (convert to 0-based index)
+        product = category_products[number - 1]
+        
+        # Check existing subscription
+        sub_query = select(Subscription).where(
+            Subscription.user_id == user_id,
+            Subscription.product_id == product.id
+        )
+        subscription = await session.scalar(sub_query)
+        
+        if subscription:
+            # Unsubscribe
+            await session.delete(subscription)
+            message = f"❌ <b>Unsubscribed from:</b>\n{product.name}\n\n📵 You won't receive notifications for this product anymore."
+            logger.info(f"User {user_id} unsubscribed from product {product.id} via /{number}")
+        else:
+            # Subscribe
+            subscription = Subscription(
+                user_id=user_id,
+                product_id=product.id,
+                last_stock_status=product.available,
+                notified=product.available
+            )
+            session.add(subscription)
+            
+            status = "🟢 in stock" if product.available else "🔴 out of stock"
+            shop_link = ""
+            if product.available:
+                shop_link = f"\n\n🛒 <a href=\"https://shop.amul.com/product/{product.alias}\">Shop now</a>"
+            
+            message = f"""✅ <b>Subscribed to:</b>
+{product.name}
+
+📊 <b>Current Status:</b> {status}
+💰 <b>Price:</b> ₹{product.price}
+
+🔔 <b>You will be notified when:</b>
+• Product comes back in stock (if currently unavailable)
+• Product becomes unavailable (if currently in stock){shop_link}"""
+            logger.info(f"User {user_id} subscribed to product {product.id} via /{number}")
+        
+        await session.commit()
+        await update.message.reply_text(message, parse_mode=constants.ParseMode.HTML)
+        
+    except Exception as e:
+        logger.error(f"Error in number command handler: {e}")
+        await update.message.reply_text("An error occurred. Please try again.")
 
 async def send_notification(context: ContextTypes.DEFAULT_TYPE, product: Product, user_id: str):
     """Send Telegram notification to a subscribed user"""
