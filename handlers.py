@@ -243,9 +243,7 @@ async def show_category_products(query, context: ContextTypes.DEFAULT_TYPE, sess
         
         message += "─" * 30 + "\n"
         message += "📱 <b>How to subscribe:</b>\n"
-        message += "• Use buttons below for quick actions\n"
-        message += "• Or send /&lt;number&gt; (e.g., /1, /2) to subscribe\n"
-        message += "• Send /&lt;number&gt; again to unsubscribe\n\n"
+        message += "• Use buttons below to subscribe/unsubscribe\n\n"
         message += f"🟢 = In Stock | 🔴 = Out of Stock | ✅ = Subscribed"
         
         # Create keyboard with quick action buttons
@@ -413,86 +411,6 @@ async def show_categories_again(query, context: ContextTypes.DEFAULT_TYPE, sessi
     except Exception as e:
         logger.error(f"Error showing categories: {e}")
         await query.edit_message_text("An error occurred. Please try again.")
-
-async def handle_number_command(update: Update, context: ContextTypes.DEFAULT_TYPE, session):
-    """Handle /1, /2, etc. commands for product subscription"""
-    try:
-        # Extract number from command
-        command_text = update.message.text.strip()
-        if not command_text.startswith('/') or len(command_text) < 2:
-            return
-        
-        try:
-            number = int(command_text[1:])  # Remove the '/' and convert to int
-        except ValueError:
-            return  # Not a valid number command
-        
-        user_id = str(update.effective_user.id)
-        
-        # Check if user has category products stored
-        if not context.user_data or 'category_products' not in context.user_data:
-            await update.message.reply_text(
-                "Please first select a category using /products command."
-            )
-            return
-        
-        category_products = context.user_data.get('category_products', [])
-        category_name = context.user_data.get('category_name', 'Unknown')
-        
-        # Check if number is valid
-        if number < 1 or number > len(category_products):
-            await update.message.reply_text(
-                f"Invalid number. Please choose between 1 and {len(category_products)}."
-            )
-            return
-        
-        # Get the product (convert to 0-based index)
-        product = category_products[number - 1]
-        
-        # Check existing subscription
-        sub_query = select(Subscription).where(
-            Subscription.user_id == user_id,
-            Subscription.product_id == product.id
-        )
-        subscription = await session.scalar(sub_query)
-        
-        if subscription:
-            # Unsubscribe
-            await session.delete(subscription)
-            message = f"❌ <b>Unsubscribed from:</b>\n{product.name}\n\n📵 You won't receive notifications for this product anymore."
-            logger.info(f"User {user_id} unsubscribed from product {product.id} via /{number}")
-        else:
-            # Subscribe
-            subscription = Subscription(
-                user_id=user_id,
-                product_id=product.id,
-                last_stock_status=product.available,
-                notified=product.available
-            )
-            session.add(subscription)
-            
-            status = "🟢 in stock" if product.available else "🔴 out of stock"
-            shop_link = ""
-            if product.available:
-                shop_link = f"\n\n🛒 <a href=\"https://shop.amul.com/product/{product.alias}\">Shop now</a>"
-            
-            message = f"""✅ <b>Subscribed to:</b>
-{product.name}
-
-📊 <b>Current Status:</b> {status}
-💰 <b>Price:</b> ₹{product.price}
-
-🔔 <b>You will be notified when:</b>
-• Product comes back in stock (if currently unavailable)
-• Product becomes unavailable (if currently in stock){shop_link}"""
-            logger.info(f"User {user_id} subscribed to product {product.id} via /{number}")
-        
-        await session.commit()
-        await update.message.reply_text(message, parse_mode=constants.ParseMode.HTML)
-        
-    except Exception as e:
-        logger.error(f"Error in number command handler: {e}")
-        await update.message.reply_text("An error occurred. Please try again.")
 
 async def send_notification(context: ContextTypes.DEFAULT_TYPE, product: Product, user_id: str):
     """Send Telegram notification to a subscribed user"""

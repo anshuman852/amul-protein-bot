@@ -3,13 +3,13 @@ import logging
 import os
 from datetime import datetime
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 from config import BOT_TOKEN, DATABASE_URL, CHECK_INTERVAL, COMMANDS
 from models import Base, Product, Subscription
 from api import get_products, init_api_session, cleanup
-from handlers import start, list_products, button_callback, my_subscriptions, stock, send_notification, handle_number_command
+from handlers import start, list_products, button_callback, my_subscriptions, stock, send_notification
 from utils import create_product_from_api, get_current_check_interval, is_downtime, get_schedule_info, get_ist_time
 
 # Configure logging
@@ -192,12 +192,6 @@ def main():
         application.add_handler(CommandHandler("mysubs", command_wrapper(my_subscriptions)))
         application.add_handler(CommandHandler("stock", command_wrapper(stock)))
         application.add_handler(CallbackQueryHandler(command_wrapper(button_callback)))
-        
-        # Add number command handler for /1, /2, etc.
-        application.add_handler(MessageHandler(
-            filters.Regex(r'^/\d+$'), 
-            command_wrapper(handle_number_command)
-        ))
 
         # Set bot commands
         async def set_commands():
