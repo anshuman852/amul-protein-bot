@@ -33,7 +33,12 @@ def categorize_products(products):
                     pack_info = part.strip()
                     break
         
-        product_info = f"{status} - {pack_info} - {price}"
+        # Add product link for in-stock items
+        if product.available:
+            product_link = f"https://shop.amul.com/product/{product.alias}"
+            product_info = f"{status} - {pack_info} - {price} - <a href=\"{product_link}\">🛒 Shop</a>"
+        else:
+            product_info = f"{status} - {pack_info} - {price}"
         
         # Categorize product
         if "whey protein" in name:
@@ -85,6 +90,7 @@ def format_notification_message(product):
 def format_stock_message(categories, last_check_time=None, check_interval=300):
     """Format stock status message with categories"""
     message = "📊 <b>Product Categories</b>\n\n"
+    message += "🛒 <i>Click 'Shop' links to buy in-stock items</i>\n\n"
     
     for category_name, category_data in categories.items():
         has_products = False

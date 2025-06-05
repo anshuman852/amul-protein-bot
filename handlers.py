@@ -186,6 +186,11 @@ async def my_subscriptions(update: Update, context: ContextTypes.DEFAULT_TYPE, s
         
         subscription_info = f"• {product.name} - {price}\n  Status: {status}"
         
+        # Add shop link for in-stock products
+        if product.available:
+            product_link = f"https://shop.amul.com/product/{product.alias}"
+            subscription_info += f"\n  🛒 <a href=\"{product_link}\">Shop now</a>"
+        
         if sub.last_notified_at:
             subscription_info += f"\n  Last notification: {sub.last_notified_at.strftime('%Y-%m-%d %H:%M')}"
         
