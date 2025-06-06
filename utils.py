@@ -1,7 +1,10 @@
 from datetime import datetime, timedelta
 import pytz
+import logging
 from models import Product
 from config import PRODUCT_CATEGORIES, CHECK_INTERVAL_PEAK, CHECK_INTERVAL_NORMAL, DOWNTIME_START_HOUR, DOWNTIME_END_HOUR, PEAK_START_HOUR, PEAK_END_HOUR
+
+logger = logging.getLogger(__name__)
 
 # Always use Asia/Kolkata timezone for scheduling (Amul is Indian company)
 IST = pytz.timezone('Asia/Kolkata')
@@ -72,20 +75,78 @@ def categorize_products(products):
     
     return categories
 
-def format_notification_message(product):
-    """Format notification message for product availability"""
-    return f"""🎉 <b>Stock Update!</b>
+def format_notification_message(product, is_available=True, duration_info=None):
+    """Format notification message for product availability changes"""
+    if is_available:
+        status_emoji = "🎉"
+        status_text = "Now Available"
+        action_text = f"🛒 <a href=\"https://shop.amul.com/en/product/{product.alias}\">Shop now</a>"
+        
+        if duration_info:
+            duration_text = f"\n⏱️ Was out of stock for: <b>{duration_info}</b>"
+        else:
+            duration_text = ""
+    else:
+        status_emoji = "😞"
+        status_text = "Out of Stock"
+        action_text = "📝 You'll be notified when it's back in stock"
+        
+        if duration_info:
+            duration_text = f"\n⏱️ Was in stock for: <b>{duration_info}</b>"
+        else:
+            duration_text = ""
+    
+    return {
+        'text': f"""{status_emoji} <b>Stock Update!</b>
 
 <b>{product.name}</b>
-📊 Status: <b>Now Available</b>
+📊 Status: <b>{status_text}</b>
 💰 Price: <b>₹{product.price}</b>
-🏷️ SKU: <code>{product.sku}</code>
+🏷️ SKU: <code>{product.sku}</code>{duration_text}
 
 📍 You are receiving this notification because you subscribed to stock updates for this product.
 
-🛒 <a href="https://shop.amul.com/en/product/{product.alias}">Shop now</a>
+{action_text}""",
+        'photo': product.image_url
+    }
 
-ℹ️ You will be notified again if this product goes out of stock and becomes available again."""
+def format_channel_notification(product, is_available=True, duration_info=None, restock_info=None):
+    """Format notification message for channel broadcasts"""
+    now_ist = get_ist_time()
+    
+    if is_available:
+        status_emoji = "🟢"
+        status_text = "BACK IN STOCK"
+        
+        duration_parts = []
+        if duration_info:
+            duration_parts.append(f"📉 Was out of stock for: <b>{duration_info}</b>")
+        if restock_info:
+            duration_parts.append(f"🔄 Restocked after: <b>{restock_info}</b>")
+        
+        duration_text = "\n" + "\n".join(duration_parts) if duration_parts else ""
+        
+    else:
+        status_emoji = "🔴"
+        status_text = "OUT OF STOCK"
+        
+        if duration_info:
+            duration_text = f"\n📈 Was in stock for: <b>{duration_info}</b>"
+        else:
+            duration_text = ""
+    
+    return {
+        'text': f"""{status_emoji} <b>{status_text}</b>
+
+<b>{product.name}</b>
+💰 Price: ₹{product.price}
+🏷️ SKU: {product.sku}{duration_text}
+
+🕐 Updated: {now_ist.strftime('%d %b %Y, %H:%M IST')}
+
+🛒 <a href="https://shop.amul.com/en/product/{product.alias}">Shop Link</a>""",
+        'photo': product.image_url
+    }
 
 def format_stock_message(categories, last_check_time=None, check_interval=300):
     """Format stock status message with categories"""
@@ -121,15 +182,34 @@ def format_stock_message(categories, last_check_time=None, check_interval=300):
     
     return message
 
+def get_product_image_url(api_product):
+    """Extract and format product image URL from API data"""
+    try:
+        file_base_url = api_product.get('fileBaseUrl', '')
+        images = api_product.get('images', [])
+        
+        if file_base_url and images and len(images) > 0:
+            first_image = images[0].get('image', '')
+            if first_image:
+                return file_base_url + first_image
+    except Exception as e:
+        logger.error(f"Error extracting image URL: {e}")
+    
+    return None
+
 def create_product_from_api(api_product):
     """Create Product instance from API data"""
+    image_url = get_product_image_url(api_product)
+    
     return Product(
         id=api_product['_id'],
         name=api_product['name'],
         price=api_product['price'],
         sku=api_product['sku'],
         alias=api_product['alias'],
-        available=api_product['available'] == 1
+        available=api_product['available'] == 1,
+        image_url=image_url,
+        file_base_url=api_product.get('fileBaseUrl', '')
     )
 
 def get_current_check_interval():
@@ -167,6 +247,46 @@ def get_next_active_time():
         return next_active
     
     return now
+
+def format_natural_duration(start_time, end_time):
+    """Format duration between two times in natural language"""
+    if not start_time or not end_time:
+        return "unknown duration"
+    
+    # Ensure both times are timezone-aware
+    if start_time.tzinfo is None:
+        start_time = IST.localize(start_time)
+    if end_time.tzinfo is None:
+        end_time = IST.localize(end_time)
+    
+    duration = end_time - start_time
+    total_seconds = int(duration.total_seconds())
+    
+    if total_seconds < 0:
+        return "unknown duration"
+    
+    # Calculate time components
+    days = total_seconds // 86400
+    hours = (total_seconds % 86400) // 3600
+    minutes = (total_seconds % 3600) // 60
+    
+    # Format natural language
+    parts = []
+    if days > 0:
+        parts.append(f"{days} day{'s' if days != 1 else ''}")
+    if hours > 0:
+        parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+    if minutes > 0 and days == 0:  # Only show minutes if less than a day
+        parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+    
+    if not parts:
+        return "less than a minute"
+    elif len(parts) == 1:
+        return parts[0]
+    elif len(parts) == 2:
+        return f"{parts[0]} {parts[1]}"
+    else:
+        return f"{parts[0]} {parts[1]} {parts[2]}"
 
 def get_schedule_info():
     """Get human-readable schedule information"""

@@ -22,6 +22,11 @@ class Product(Base):
     alias = Column(String)
     available = Column(Boolean, default=False)
     last_checked = Column(DateTime, default=datetime.utcnow)
+    last_stock_change = Column(DateTime, nullable=True)  # When stock status last changed
+    last_in_stock_at = Column(DateTime, nullable=True)   # When it was last in stock
+    last_out_of_stock_at = Column(DateTime, nullable=True)  # When it went out of stock
+    image_url = Column(String, nullable=True)  # Product image URL
+    file_base_url = Column(String, nullable=True)  # Base URL for images
     subscriptions = relationship("Subscription", back_populates="product")
 
 class User(Base):

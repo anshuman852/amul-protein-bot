@@ -6,11 +6,11 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-from config import BOT_TOKEN, DATABASE_URL, COMMANDS
+from config import BOT_TOKEN, DATABASE_URL, COMMANDS, NOTIFICATION_CHANNEL_ID
 from models import Base, Product, Subscription
 from api import get_products, init_api_session, cleanup
 from handlers import start, list_products, button_callback, my_subscriptions, stock, send_notification
-from utils import create_product_from_api, get_current_check_interval, is_downtime, get_schedule_info
+from utils import create_product_from_api, get_current_check_interval, is_downtime, get_schedule_info, get_ist_time, format_natural_duration, format_channel_notification
 
 # Configure logging with IST timezone and colors
 class ColoredISTFormatter(logging.Formatter):
@@ -130,18 +130,70 @@ async def check_stock(context: ContextTypes.DEFAULT_TYPE, force_run=False):
                     result = await session.execute(subs_query)
                     subscriptions = result.scalars().all()
                     
-                    for sub in subscriptions:
-                        stock_changed = sub.last_stock_status != current_stock_status
+                    # Track stock changes and calculate durations
+                    stock_changed = product.available != current_stock_status
+                    now_utc = datetime.utcnow()
+                    
+                    duration_info = None
+                    restock_info = None
+                    
+                    if stock_changed:
+                        if current_stock_status:  # Product became available
+                            product.last_in_stock_at = now_utc
+                            if product.last_out_of_stock_at:
+                                duration_info = format_natural_duration(product.last_out_of_stock_at, now_utc)
+                                # Calculate restock info (time since last in stock)
+                                if product.last_stock_change:
+                                    restock_info = format_natural_duration(product.last_stock_change, now_utc)
+                        else:  # Product went out of stock
+                            product.last_out_of_stock_at = now_utc
+                            if product.last_in_stock_at:
+                                duration_info = format_natural_duration(product.last_in_stock_at, now_utc)
                         
-                        if stock_changed:
+                        product.last_stock_change = now_utc
+                        
+                        # Send channel notification if configured
+                        if NOTIFICATION_CHANNEL_ID:
+                            try:
+                                channel_data = format_channel_notification(
+                                    product, current_stock_status, duration_info, restock_info
+                                )
+                                
+                                if channel_data['photo']:
+                                    # Send photo with caption
+                                    await context.bot.send_photo(
+                                        chat_id=NOTIFICATION_CHANNEL_ID,
+                                        photo=channel_data['photo'],
+                                        caption=channel_data['text'],
+                                        parse_mode='HTML'
+                                    )
+                                else:
+                                    # Send text message if no image
+                                    await context.bot.send_message(
+                                        chat_id=NOTIFICATION_CHANNEL_ID,
+                                        text=channel_data['text'],
+                                        parse_mode='HTML',
+                                        disable_web_page_preview=True
+                                    )
+                                
+                                logger.info(f"Sent channel notification for {product.name}")
+                            except Exception as e:
+                                logger.error(f"Failed to send channel notification: {e}")
+                    
+                    # Send individual user notifications
+                    for sub in subscriptions:
+                        user_stock_changed = sub.last_stock_status != current_stock_status
+                        
+                        if user_stock_changed:
                             if current_stock_status:  # Product became available
-                                await send_notification(context, product, sub.user_id)
-                                sub.last_notified_at = datetime.utcnow()
+                                await send_notification(context, product, sub.user_id, True, duration_info)
+                                sub.last_notified_at = now_utc
                                 sub.notified = True
                                 logger.info(f"Notified user {sub.user_id} about {product.name} becoming available")
                             else:  # Product went out of stock
+                                await send_notification(context, product, sub.user_id, False, duration_info)
                                 sub.notified = False  # Reset notification status for next availability
-                                logger.info(f"Reset notification status for {sub.user_id} as {product.name} is out of stock")
+                                logger.info(f"Notified user {sub.user_id} about {product.name} going out of stock")
                             
                             sub.last_stock_status = current_stock_status
                     

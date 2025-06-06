@@ -411,11 +411,29 @@ async def show_categories_again(query, context: ContextTypes.DEFAULT_TYPE, sessi
         logger.error(f"Error showing categories: {e}")
         await query.edit_message_text("An error occurred. Please try again.")
 
-async def send_notification(context: ContextTypes.DEFAULT_TYPE, product: Product, user_id: str):
+async def send_notification(context: ContextTypes.DEFAULT_TYPE, product: Product, user_id: str, is_available=True, duration_info=None):
     """Send Telegram notification to a subscribed user"""
     try:
-        message = format_notification_message(product)
-        await context.bot.send_message(chat_id=user_id, text=message, parse_mode=constants.ParseMode.HTML)
-        logger.info(f"Notification sent to user {user_id} for product {product.name}")
+        from utils import format_notification_message
+        message_data = format_notification_message(product, is_available, duration_info)
+        
+        if message_data['photo']:
+            # Send photo with caption
+            await context.bot.send_photo(
+                chat_id=user_id,
+                photo=message_data['photo'],
+                caption=message_data['text'],
+                parse_mode=constants.ParseMode.HTML
+            )
+        else:
+            # Send text message if no image
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=message_data['text'],
+                parse_mode=constants.ParseMode.HTML
+            )
+        
+        status = "available" if is_available else "out of stock"
+        logger.info(f"Notification sent to user {user_id} for product {product.name} ({status})")
     except Exception as e:
         logger.error(f"Failed to send notification to {user_id}: {e}")

@@ -13,6 +13,9 @@ DOWNTIME_END_HOUR = int(os.getenv("DOWNTIME_END_HOUR", "6"))             # 6am
 PEAK_START_HOUR = int(os.getenv("PEAK_START_HOUR", "6"))                 # 6am
 PEAK_END_HOUR = int(os.getenv("PEAK_END_HOUR", "16"))                    # 4pm
 
+# Notification settings
+NOTIFICATION_CHANNEL_ID = os.getenv("NOTIFICATION_CHANNEL_ID")           # Channel ID for stock notifications
+
 # Legacy config for backward compatibility
 CHECK_INTERVAL = CHECK_INTERVAL_PEAK  # Default to peak interval
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///app/data/amul_bot.db")
