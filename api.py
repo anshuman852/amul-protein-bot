@@ -1,6 +1,5 @@
 import logging
 import aiohttp
-from datetime import datetime
 from config import API_URL, HOMEPAGE_URL, PREFERENCES_URL, HEADERS
 
 logger = logging.getLogger(__name__)

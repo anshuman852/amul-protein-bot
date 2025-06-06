@@ -1,22 +1,58 @@
 import asyncio
 import logging
-import os
 from datetime import datetime
+import pytz
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-from config import BOT_TOKEN, DATABASE_URL, CHECK_INTERVAL, COMMANDS
+from config import BOT_TOKEN, DATABASE_URL, COMMANDS
 from models import Base, Product, Subscription
 from api import get_products, init_api_session, cleanup
 from handlers import start, list_products, button_callback, my_subscriptions, stock, send_notification
-from utils import create_product_from_api, get_current_check_interval, is_downtime, get_schedule_info, get_ist_time
+from utils import create_product_from_api, get_current_check_interval, is_downtime, get_schedule_info
+
+# Configure logging with IST timezone and colors
+class ColoredISTFormatter(logging.Formatter):
+    def __init__(self, fmt=None):
+        super().__init__(fmt)
+        self.ist = pytz.timezone('Asia/Kolkata')
+        
+        # ANSI color codes
+        self.colors = {
+            'DEBUG': '\033[36m',    # Cyan
+            'INFO': '\033[32m',     # Green
+            'WARNING': '\033[33m',  # Yellow
+            'ERROR': '\033[31m',    # Red
+            'CRITICAL': '\033[35m', # Magenta
+            'RESET': '\033[0m'      # Reset
+        }
+    
+    def formatTime(self, record, datefmt=None):
+        dt = datetime.fromtimestamp(record.created, tz=self.ist)
+        return dt.strftime('%Y-%m-%d %H:%M:%S IST')
+    
+    def format(self, record):
+        # Get the original formatted message
+        original = super().format(record)
+        
+        # Add color based on log level
+        color = self.colors.get(record.levelname, self.colors['RESET'])
+        reset = self.colors['RESET']
+        
+        # Color the entire line
+        return f"{color}{original}{reset}"
 
 # Configure logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
+
+# Apply colored IST formatter to all handlers
+for handler in logging.root.handlers:
+    handler.setFormatter(ColoredISTFormatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+
 logger = logging.getLogger(__name__)
 
 # Set higher log level for other libraries
@@ -50,13 +86,15 @@ async def initialize():
         logger.error("Failed to initialize API session")
         raise RuntimeError("API session initialization failed")
 
-async def check_stock(context: ContextTypes.DEFAULT_TYPE):
+async def check_stock(context: ContextTypes.DEFAULT_TYPE, force_run=False):
     """Periodic job to check stock and notify subscribers"""
     try:
-        # Skip checking during downtime hours
-        if is_downtime():
+        # Skip checking during downtime hours unless forced
+        if is_downtime() and not force_run:
             logger.info("Skipping stock check during downtime hours (12am-6am)")
             return
+        elif is_downtime() and force_run:
+            logger.info("Running initial stock check (forced during downtime)")
             
         api_products = await get_products()
         logger.info(f"Fetched {len(api_products)} products from API")
@@ -123,6 +161,10 @@ async def check_stock(context: ContextTypes.DEFAULT_TYPE):
         # Still schedule next check even if there was an error
         schedule_next_check(context)
 
+async def initial_stock_check(context: ContextTypes.DEFAULT_TYPE):
+    """Initial stock check that runs regardless of downtime"""
+    await check_stock(context, force_run=True)
+
 def schedule_next_check(context):
     """Schedule the next stock check based on current time"""
     try:
@@ -132,21 +174,14 @@ def schedule_next_check(context):
             # We're in downtime, schedule for when downtime ends
             from utils import get_next_active_time
             next_active = get_next_active_time()
-            now_ist = get_ist_time()
             
-            # Calculate delay in seconds
-            delay = (next_active - now_ist).total_seconds()
-            
-            # Ensure delay is positive and reasonable
-            if delay <= 0:
-                delay = 60  # If calculation is wrong, try again in 1 minute
-            
+            # Since job queue is now in IST timezone, we can schedule directly with IST datetime
             context.job_queue.run_once(
                 check_stock,
-                when=delay,
+                when=next_active,
                 name="stock_check_resume"
             )
-            logger.info(f"Scheduled next check after downtime at {next_active.strftime('%H:%M')} IST (in {delay/3600:.1f} hours)")
+            logger.info(f"Scheduled next check after downtime at {next_active.strftime('%Y-%m-%d %H:%M:%S %Z')}")
         else:
             # Schedule next check with appropriate interval
             context.job_queue.run_once(
@@ -191,6 +226,11 @@ def main():
             .concurrent_updates(True)
             .build()
         )
+        
+        # Configure job queue timezone to IST
+        IST = pytz.timezone('Asia/Kolkata')
+        if application.job_queue:
+            application.job_queue.scheduler.timezone = IST
 
         # Add command handlers with session wrapper
         application.add_handler(CommandHandler("start", command_wrapper(start)))
@@ -207,26 +247,17 @@ def main():
         asyncio.get_event_loop().run_until_complete(set_commands())
         logger.info("Bot commands registered")
 
-        # Start dynamic stock checker
+        # Always run initial stock check immediately, then follow smart scheduling
+        application.job_queue.run_once(initial_stock_check, when=10, name="stock_check_initial")
+        
         current_interval = get_current_check_interval()
         if current_interval is None:
-            # We're in downtime, schedule for when it ends
             from utils import get_next_active_time
             next_active = get_next_active_time()
-            now_ist = get_ist_time()
-            delay = (next_active - now_ist).total_seconds()
-            
-            # Ensure delay is positive and reasonable
-            if delay <= 0:
-                delay = 60  # If calculation is wrong, try again in 1 minute
-                
-            application.job_queue.run_once(check_stock, when=max(10, delay), name="stock_check_initial")
-            logger.info(f"Bot starting during downtime - first check scheduled for {next_active.strftime('%H:%M')} IST (in {delay/3600:.1f} hours)")
+            logger.info(f"Bot starting during downtime - initial check in 10 seconds, then resuming at {next_active.strftime('%Y-%m-%d %H:%M:%S %Z')}")
         else:
-            # Start checking immediately with current interval
-            application.job_queue.run_once(check_stock, when=10, name="stock_check_initial")
             schedule_info = get_schedule_info()
-            logger.info(f"Dynamic stock checker started: {schedule_info}")
+            logger.info(f"Dynamic stock checker started - initial check in 10 seconds, then: {schedule_info}")
         logger.info("Bot starting...")
 
         # Start the bot

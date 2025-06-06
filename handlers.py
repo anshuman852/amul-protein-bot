@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constants
 from telegram.ext import ContextTypes
 from sqlalchemy import select
@@ -244,7 +243,7 @@ async def show_category_products(query, context: ContextTypes.DEFAULT_TYPE, sess
         message += "─" * 30 + "\n"
         message += "📱 <b>How to subscribe:</b>\n"
         message += "• Use buttons below to subscribe/unsubscribe\n\n"
-        message += f"🟢 = In Stock | 🔴 = Out of Stock | ✅ = Subscribed"
+        message += "🟢 = In Stock | 🔴 = Out of Stock | ✅ = Subscribed"
         
         # Create keyboard with quick action buttons
         keyboard = []
