@@ -132,15 +132,21 @@ def schedule_next_check(context):
             # We're in downtime, schedule for when downtime ends
             from utils import get_next_active_time
             next_active = get_next_active_time()
-            # Convert IST time to local time for scheduling
-            delay = (next_active.replace(tzinfo=None) - get_ist_time().replace(tzinfo=None)).total_seconds()
+            now_ist = get_ist_time()
+            
+            # Calculate delay in seconds
+            delay = (next_active - now_ist).total_seconds()
+            
+            # Ensure delay is positive and reasonable
+            if delay <= 0:
+                delay = 60  # If calculation is wrong, try again in 1 minute
             
             context.job_queue.run_once(
                 check_stock,
                 when=delay,
                 name="stock_check_resume"
             )
-            logger.info(f"Scheduled next check after downtime at {next_active.strftime('%H:%M')}")
+            logger.info(f"Scheduled next check after downtime at {next_active.strftime('%H:%M')} IST (in {delay/3600:.1f} hours)")
         else:
             # Schedule next check with appropriate interval
             context.job_queue.run_once(
@@ -207,9 +213,15 @@ def main():
             # We're in downtime, schedule for when it ends
             from utils import get_next_active_time
             next_active = get_next_active_time()
-            delay = (next_active.replace(tzinfo=None) - get_ist_time().replace(tzinfo=None)).total_seconds()
+            now_ist = get_ist_time()
+            delay = (next_active - now_ist).total_seconds()
+            
+            # Ensure delay is positive and reasonable
+            if delay <= 0:
+                delay = 60  # If calculation is wrong, try again in 1 minute
+                
             application.job_queue.run_once(check_stock, when=max(10, delay), name="stock_check_initial")
-            logger.info(f"Bot starting during downtime - first check scheduled for {next_active.strftime('%H:%M')}")
+            logger.info(f"Bot starting during downtime - first check scheduled for {next_active.strftime('%H:%M')} IST (in {delay/3600:.1f} hours)")
         else:
             # Start checking immediately with current interval
             application.job_queue.run_once(check_stock, when=10, name="stock_check_initial")
